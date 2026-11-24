@@ -536,16 +536,29 @@ async def post_observation(case_id: str, req: ObservationRequest):
 
     observation_id = gen_id("OB")
 
+    # 查找该 case 的 frozen revision（observation 必须绑定到 frozen revision）
+    frozen_rev = await fetch_one(
+        """
+        SELECT revision_id FROM cases.case_revision
+        WHERE case_id = $1 AND status = 'frozen'
+        ORDER BY frozen_at DESC NULLS LAST
+        LIMIT 1
+        """,
+        case_id,
+    )
+    revision_id = frozen_rev["revision_id"] if frozen_rev else None
+
     pool = await get_pool()
     async with pool.transaction():
         await execute(
             """
             INSERT INTO cases.observation
-              (observation_id, case_id, window_start, window_end, outcome, content, refs)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+              (observation_id, case_id, revision_id, window_start, window_end, outcome, content, refs)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             """,
             observation_id,
             case_id,
+            revision_id,
             req.windowStart,
             req.windowEnd,
             req.outcome,
