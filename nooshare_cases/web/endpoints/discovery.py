@@ -74,12 +74,12 @@ async def load_case_refs() -> list[dict]:
     return result
 
 
-async def load_skip_keys() -> set[str]:
+async def load_skip_keys() -> set[tuple[str, str]]:
     rows = await fetch_all(
-        "SELECT DISTINCT ON (subject_type, subject_key) subject_key, action "
+        "SELECT DISTINCT ON (subject_type, subject_key) subject_type, subject_key, action "
         "FROM cases.discovery_action ORDER BY subject_type, subject_key, created_at DESC"
     )
-    return {r["subject_key"] for r in rows if r["action"] == "skip"}
+    return {(r["subject_type"], r["subject_key"]) for r in rows if r["action"] == "skip"}
 
 
 def derive_agent_status(topic_keys: list[str], cases: list[dict], skipped: bool) -> dict:
@@ -182,7 +182,7 @@ async def discovery_queue():
         votes = theme_votes.get(fragment, [])
         best = max(votes, key=lambda v: int(v["stock_votes"])) if votes else None
         topic_keys = [fragment, best["theme_name"]] if best else [fragment]
-        is_skipped = fragment in skip_keys or (best and best["theme_name"] in skip_keys)
+        is_skipped = ("fragment", fragment) in skip_keys or (best and ("theme", best["theme_name"]) in skip_keys)
         status_info = derive_agent_status(topic_keys, case_refs, bool(is_skipped))
 
         ep_row = None
@@ -466,10 +466,7 @@ async def prepare_case(topic_id: str, body: PrepareRequest):
     if dup:
         raise HTTPException(status_code=409, detail=f"该热点已存在候选 Case {dup['case_id']}")
 
-    seq_row = await fetch_one(
-        "SELECT coalesce(max(nullif(regexp_replace(case_id, '[^0-9]', '', 'g'), '')::bigint), 1000) + 1 AS n "
-        r"FROM cases.\"case\" WHERE case_id ~ '^C-[0-9]+$'"
-    )
+    seq_row = await fetch_one("SELECT nextval('cases.case_id_seq') AS n")
     case_id = f"C-{seq_row['n']}"
 
     ref_json = json.dumps({
