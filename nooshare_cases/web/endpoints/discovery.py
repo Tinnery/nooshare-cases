@@ -547,7 +547,7 @@ async def prepare_case(topic_id: str, body: PrepareRequest):
                 'INSERT INTO cases."case" (case_id, title, research_question, research_time_t, info_cutoff, status, '
                 "trigger_discovery_ref, episode_refs, themes, is_fixture) "
                 "VALUES ($1, $2, $3, $4, $5, 'candidate', $6::jsonb, $7, $8, false)",
-                case_id, question[:60], question, body.researchTimeT, body.infoCutoff,
+                case_id, question[:60], question, ts_t, ts_cutoff,
                 ref_json, [], [theme_name] if theme_name else [],
             )
             # G3: 完整的 input_manifest，包含 PIT 信息
