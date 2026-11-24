@@ -32,6 +32,7 @@ class PrepareRequest(BaseModel):
     infoCutoff: Optional[str] = None
     note: Optional[str] = None
     episodeRef: Optional[str] = None
+    sourceSnapshotId: Optional[str] = None
 
 
 # ---------- Agent 状态推导 ----------
@@ -108,6 +109,15 @@ async def discovery_queue():
     if not snap:
         raise HTTPException(status_code=503, detail="无可用数据快照")
 
+    # 查询 snapshot 元数据
+    snap_meta = await fetch_one(
+        "SELECT source_snapshot_id, snapshot_at::text, min_trade_date::text, max_trade_date::text, "
+        "source_system, import_status FROM research.source_snapshot WHERE source_snapshot_id = $1",
+        snap
+    )
+    if not snap_meta:
+        raise HTTPException(status_code=503, detail=f"Snapshot {snap} 元数据缺失")
+
     # 1) 标准化片段聚合
     agg_rows = await fetch_all(
         "SELECT rf.normalized_fragment, "
@@ -125,7 +135,19 @@ async def discovery_queue():
     topics = [r["normalized_fragment"] for r in agg_rows]
 
     if not topics:
-        return {"queue": [], "footer": {"total": 0, "unhandled": 0}, "snapshotId": snap}
+        return {
+            "queue": [],
+            "footer": {"total": 0, "unhandled": 0},
+            "snapshotId": snap,
+            "snapshotMeta": {
+                "sourceSnapshotId": snap_meta["source_snapshot_id"],
+                "snapshotAt": snap_meta["snapshot_at"],
+                "minTradeDate": snap_meta["min_trade_date"],
+                "maxTradeDate": snap_meta["max_trade_date"],
+                "sourceSystem": snap_meta["source_system"],
+                "importStatus": snap_meta["import_status"],
+            }
+        }
 
     # 2) 每个热点取 3 条最近原始片段样本
     sample_rows = await fetch_all(
@@ -247,6 +269,14 @@ async def discovery_queue():
         "queue": queue,
         "footer": {"total": len(queue), "unhandled": sum(1 for q in queue if q["agentStatus"] == "unhandled")},
         "snapshotId": snap,
+        "snapshotMeta": {
+            "sourceSnapshotId": snap_meta["source_snapshot_id"],
+            "snapshotAt": snap_meta["snapshot_at"],
+            "minTradeDate": snap_meta["min_trade_date"],
+            "maxTradeDate": snap_meta["max_trade_date"],
+            "sourceSystem": snap_meta["source_system"],
+            "importStatus": snap_meta["import_status"],
+        }
     }
 
 
@@ -451,6 +481,20 @@ async def prepare_case(topic_id: str, body: PrepareRequest):
     if ts_cutoff > ts_t:
         raise HTTPException(status_code=400, detail="信息截止必须早于或等于 T 时点")
 
+    # G3: 验证 sourceSnapshotId
+    if not body.sourceSnapshotId:
+        raise HTTPException(status_code=400, detail="sourceSnapshotId 为必填项")
+    
+    snap_meta = await fetch_one(
+        "SELECT source_snapshot_id, snapshot_at::text, min_trade_date::text, max_trade_date::text, "
+        "source_system, import_status FROM research.source_snapshot WHERE source_snapshot_id = $1",
+        body.sourceSnapshotId
+    )
+    if not snap_meta:
+        raise HTTPException(status_code=404, detail=f"Snapshot {body.sourceSnapshotId} 不存在")
+    if snap_meta["import_status"] != "completed":
+        raise HTTPException(status_code=400, detail=f"Snapshot {body.sourceSnapshotId} 尚未完成导入")
+
     theme_name = None
     theme_id = None
     if t == "theme":
@@ -458,20 +502,37 @@ async def prepare_case(topic_id: str, body: PrepareRequest):
         row = await fetch_one("SELECT theme_name FROM research.theme WHERE theme_id = $1", key)
         theme_name = row["theme_name"] if row else None
 
+    # G3: 幂等性检查 - 同一 subjectKey + snapshot 不重复创建
     dup = await fetch_one(
         'SELECT case_id FROM cases."case" WHERE status NOT IN (\'rejected\', \'blocked\') '
-        "AND trigger_discovery_ref->>'subjectKey' = $1 LIMIT 1",
-        key,
+        "AND trigger_discovery_ref->>'subjectKey' = $1 "
+        "AND trigger_discovery_ref->>'sourceSnapshotId' = $2 LIMIT 1",
+        key, body.sourceSnapshotId,
     )
     if dup:
-        raise HTTPException(status_code=409, detail=f"该热点已存在候选 Case {dup['case_id']}")
+        # 幂等返回已有 case
+        return JSONResponse(
+            status_code=200,
+            content={
+                "caseId": dup["case_id"],
+                "status": "candidate",
+                "topicId": topic_id,
+                "idempotent": True,
+                "note": "该 snapshot 下已存在相同热点的 Case"
+            },
+        )
 
     seq_row = await fetch_one("SELECT nextval('cases.case_id_seq') AS n")
     case_id = f"C-{seq_row['n']}"
 
+    # G3: 完整的 trigger_discovery_ref
     ref_json = json.dumps({
-        "source": "discovery", "subjectType": t, "subjectKey": key,
-        "themeId": theme_id, "themeName": theme_name,
+        "source": "discovery",
+        "subjectType": t,
+        "subjectKey": key,
+        "sourceSnapshotId": body.sourceSnapshotId,
+        "themeId": theme_id,
+        "themeName": theme_name,
         "episodeRef": body.episodeRef if body.episodeRef else None,
     })
 
@@ -485,11 +546,28 @@ async def prepare_case(topic_id: str, body: PrepareRequest):
                 case_id, question[:60], question, body.researchTimeT, body.infoCutoff,
                 ref_json, [], [theme_name] if theme_name else [],
             )
+            # G3: 完整的 input_manifest，包含 PIT 信息
+            input_manifest = {
+                "source": "discovery",
+                "subjectType": t,
+                "subjectKey": key,
+                "sourceSnapshotId": body.sourceSnapshotId,
+                "snapshotAt": snap_meta["snapshot_at"],
+                "minTradeDate": snap_meta["min_trade_date"],
+                "maxTradeDate": snap_meta["max_trade_date"],
+                "sourceSystem": snap_meta["source_system"],
+                "researchTimeT": body.researchTimeT,
+                "infoCutoff": body.infoCutoff,
+                "themeId": theme_id,
+                "themeName": theme_name,
+                "episodeRef": body.episodeRef if body.episodeRef else None,
+                "note": body.note,
+            }
             await conn.execute(
                 "INSERT INTO cases.case_revision (revision_id, case_id, revision_no, input_manifest, judgment, status, created_by) "
                 "VALUES ($1, $2, 1, $3::jsonb, $4::jsonb, 'draft', 'agent')",
                 f"{case_id}-R1", case_id,
-                json.dumps({"source": "discovery", "subjectKey": key, "note": body.note}),
+                json.dumps(input_manifest),
                 json.dumps({"hypotheses": [], "conclusion": None, "counterarguments": [], "counter_evidence": [], "open_questions": [], "applicability": ""}),
             )
 
@@ -498,3 +576,4 @@ async def prepare_case(topic_id: str, body: PrepareRequest):
         status_code=201,
         content={"caseId": case_id, "status": "candidate", "topicId": topic_id, "warning": warning},
     )
+
