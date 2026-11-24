@@ -67,7 +67,7 @@ class ReviewRequest(BaseModel):
     reason: Optional[str] = ""
     categories: List[str] = []
     revisionId: Optional[str] = None
-    reviewer: Optional[str] = "human"
+    reviewer: Optional[str] = None  # Ignored; reviewer is always "human"
 
 
 class ObservationRequest(BaseModel):
@@ -369,7 +369,7 @@ async def post_review(case_id: str, req: ReviewRequest):
         raise HTTPException(status_code=404, detail="无可审核的 Revision（未找到 reviewing 状态版本）")
 
     review_id = gen_id("RV")
-    reviewer = req.reviewer or "human"
+    reviewer = "human"  # Always human, per施工手册 requirement
     categories = req.categories or []
 
     pool = await get_pool()

@@ -29,8 +29,8 @@
 - 配置（nooshare_cases/config.py）
 - Web 后端（nooshare_cases/web/）—— FastAPI 入口，API 路由 + 静态文件服务
 - Web 前端（web/src/client/）—— Svelte 5 + Vite
-- 数据库 Schema（web/src/server/schema.sql）—— cases.* DDL（待迁移到 nooshare_cases/web/）
 - 测试（tests/）—— pytest 异步测试
+- 数据库 Schema（待迁移）—— cases.* DDL 当前在 nooshare_dev 数据库，由旧 Bun Server 的 schema.sql 初始化，需迁移到 nooshare_cases/ 管理
 
 **注意**：web/src/server/ 中的 Bun server 已退役。FastAPI（nooshare_cases/web/）是唯一的 Web 服务入口。
 
