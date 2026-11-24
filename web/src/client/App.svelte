@@ -16,6 +16,7 @@
   import MarketPage from "./pages/MarketPage.svelte";
   import DiscoveryPage from "./pages/DiscoveryPage.svelte";
   import CasesPage from "./pages/CasesPage.svelte";
+  import LimitUpPage from "./pages/LimitUpPage.svelte";
 
   // ---------- 轻量路由（共享 router store，页面可用 navigate 跳转） ----------
   function syncFromLocation(): void {
@@ -121,7 +122,7 @@
 
   // ---------- 导航项（按工作流顺序，Phase 2 §1.2） ----------
   const activeId = $derived(
-    ["market", "discovery", "cases", "review", "corpus", "runs"].find(
+    ["limitup", "market", "discovery", "cases", "review", "corpus", "runs"].find(
       (id) =>
         router.href === `/${id}` ||
         (id === "cases" && router.href.startsWith("/cases")) ||
@@ -134,7 +135,7 @@
   <div class="shell">
     <!-- 左侧导航 -->
     <nav class="sidenav" class:collapsed aria-label="主导航">
-      {#each [["market", "Market"], ["discovery", "Discovery"], ["cases", "Cases"], ["review", "Review"], ["corpus", "Corpus"], ["runs", "Agent Runs"]] as [id, label] (id)}
+      {#each [["limitup", "涨停"], ["market", "Market"], ["discovery", "Discovery"], ["cases", "Cases"], ["review", "Review"], ["corpus", "Corpus"], ["runs", "Agent Runs"]] as [id, label] (id)}
         <button
           class="nav-item"
           class:active={activeId === id}
@@ -227,7 +228,9 @@
       </header>
 
       <main class="content">
-        {#if router.href === "/market"}
+        {#if router.href === "/limitup"}
+          <LimitUpPage />
+        {:else if router.href === "/market"}
           <MarketPage />
         {:else if router.href === "/discovery"}
           <DiscoveryPage />

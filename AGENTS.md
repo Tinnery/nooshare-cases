@@ -27,6 +27,7 @@
 - 案例管理代码（`nooshare_cases/`）
 - CLI 命令（`nooshare_cases/cli.py`）
 - 配置（`nooshare_cases/config.py`）
+- Web 后端 API（`nooshare_cases/web/`）
 - 测试（`tests/`）
 
 上游权威不替代这些本地契约。与权威要求冲突时，向拥有该问题的权威反馈，不在本地悄悄改写权威定义。
@@ -81,26 +82,39 @@ uv run pytest
 
 ## Web UI
 
-Web 界面位于 `web/` 目录，使用 Bun + Svelte 全栈架构。
+Web 界面采用前后端分离架构：
+- **后端**：FastAPI（Python），位于 `nooshare_cases/web/`
+- **前端**：Svelte 5（TypeScript），位于 `web/src/client/`
 
 ### 技术栈
 
-- **Runtime**: Bun（已安装在 `~/.bun/bin/bun`）
+- **后端框架**: FastAPI（Python 3.11+）
+- **数据库驱动**: asyncpg（异步 PostgreSQL）
 - **前端框架**: Svelte 5
 - **构建工具**: Vite（仅前端）
-- **后端**: Bun.serve（单进程托管 API 和静态文件）
+- **进程管理**: supervisor（管理 uvicorn 进程）
+- **反向代理**: nginx（SSL 终止 + 路由）
 
 ### 目录结构
 
 ```
+nooshare_cases/
+├── __init__.py
+├── cli.py
+├── config.py
+└── web/
+    ├── __init__.py
+    ├── main.py              # FastAPI 应用入口
+    ├── db.py                # 数据库连接与工具函数
+    └── endpoints/
+        ├── __init__.py
+        └── discovery.py     # Discovery API 端点
+
 web/
 ├── package.json
 ├── tsconfig.json
 ├── vite.config.ts
 └── src/
-    ├── server/
-    │   ├── index.ts          # Bun.serve 服务器
-    │   └── index.test.ts
     └── client/
         ├── index.html
         ├── main.ts
@@ -109,34 +123,64 @@ web/
 
 ### 开发命令
 
+#### 后端（FastAPI）
+
+```bash
+# 安装依赖
+uv sync --extra dev
+
+# 开发模式（热重载）
+uv run uvicorn nooshare_cases.web.main:app --reload --host 127.0.0.1 --port 3000
+
+# 生产模式
+uv run uvicorn nooshare_cases.web.main:app --host 127.0.0.1 --port 3000
+```
+
+#### 前端（Svelte）
+
 ```bash
 cd web
 
 # 安装依赖
 ~/.bun/bin/bun install
 
-# 开发模式（前后端同时启动）
+# 开发模式
 ~/.bun/bin/bun run dev
-# - Client: http://localhost:5173
-# - Server: http://localhost:3000
 
-# 构建前端
+# 构建生产版本
 ~/.bun/bin/bun run build
-
-# 生产模式（单进程托管）
-~/.bun/bin/bun run start
-
-# 测试
-~/.bun/bin/bun test
 ```
+
+### 部署架构
+
+```
+nginx (443 SSL)
+  ↓
+case.pro.neuralj.com
+  ↓
+uvicorn (127.0.0.1:3000)
+  ↓
+FastAPI 应用
+```
+
+- **supervisor 进程**: `cases-web`
+- **日志位置**: `~/.local/state/supervisor/log/cases-web.{out,err}.log`
+- **配置文件**: `~/.local/etc/supervisor/conf.d/cases-web.conf`
+
+### API 端点
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/health` | 健康检查 |
+| GET | `/api/discovery/queue` | 获取 Discovery 队列 |
+| GET | `/api/discovery/theme/{topic_id}` | 获取主题详情 |
+| POST | `/api/discovery/{topic_id}/skip` | 跳过主题 |
+| POST | `/api/discovery/{topic_id}/prepare` | 准备案例 |
 
 ### 架构约束
 
-遵循 `ts-bun-svelte-fullstack-skeleton.md` 约束：
-
-- Bun 原生全链路：运行、依赖管理、测试使用 Bun 内置能力
-- Vite 单一职责：仅用于 Svelte 前端开发和构建
-- 延迟抽象：无真实需求不创建 interface、class 或分层目录
-- 测试就近：测试文件与被测代码同目录，使用 `.test.ts`
-- 禁止预建目录：不提前创建 utils、services、components、stores 等目录
-- 结构随业务增长：需要什么再创建什么
+- FastAPI 应用遵循依赖注入原则，数据库连接池通过 `db.py` 管理
+- API 端点按功能模块组织在 `endpoints/` 目录下
+- 前端构建产物位于 `web/dist/client/`，由 FastAPI 静态文件服务托管
+- 所有数据库查询使用 asyncpg 异步接口
+- 环境变量通过 `config.py` 统一管理
