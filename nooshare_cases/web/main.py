@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-from .endpoints import discovery_router, limitup_router
+from .endpoints import discovery_router, limitup_router, cases_router
 from .db import close_pool
 
 
@@ -35,6 +35,7 @@ app.add_middleware(
 # 挂载 API 路由
 app.include_router(discovery_router, prefix="/api/discovery")
 app.include_router(limitup_router, prefix="/api/limitup")
+app.include_router(cases_router, prefix="/api")
 
 # 静态文件服务
 dist_path = Path(__file__).parent.parent.parent / "web" / "dist" / "client"
