@@ -4,11 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun run dev:server & bun run dev:client",
-    "dev:server": "bun --watch src/server/index.ts",
+    "dev": "vite --config vite.config.ts",
     "dev:client": "vite --config vite.config.ts",
     "build": "vite build",
-    "start": "bun run src/server/index.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
