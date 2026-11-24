@@ -418,13 +418,32 @@ async def post_review(case_id: str, req: ReviewRequest):
             }
 
         elif req.decision == "request_changes":
-            await execute(
+            # 冻结当前 revision（不可变）
+            frozen = await fetch_one(
                 """
-                UPDATE cases.case_revision SET status = 'draft', updated_at = now()
+                UPDATE cases.case_revision
+                SET status = 'frozen', frozen_at = now(), updated_at = now()
                 WHERE revision_id = $1 AND frozen_at IS NULL
+                RETURNING revision_id, revision_no
                 """,
                 rev["revision_id"],
             )
+            if not frozen:
+                raise HTTPException(status_code=409, detail=f"Revision {rev['revision_id']} 已冻结，不可变更")
+
+            # 创建新 revision
+            new_rev_no = frozen["revision_no"] + 1
+            new_revision_id = f"{case_id}-R{new_rev_no}"
+            await execute(
+                """
+                INSERT INTO cases.case_revision (revision_id, case_id, revision_no, status, created_by)
+                VALUES ($1, $2, $3, 'draft', 'agent')
+                """,
+                new_revision_id,
+                case_id,
+                new_rev_no,
+            )
+
             await execute(
                 """
                 INSERT INTO cases.review_record
@@ -433,7 +452,7 @@ async def post_review(case_id: str, req: ReviewRequest):
                 """,
                 review_id,
                 case_id,
-                rev["revision_id"],
+                frozen["revision_id"],
                 req.reason,
                 categories,
                 reviewer,
@@ -445,10 +464,14 @@ async def post_review(case_id: str, req: ReviewRequest):
 
             return {
                 "caseId": case_id,
-                "revisionId": rev["revision_id"],
+                "frozenRevisionId": frozen["revision_id"],
+                "frozenRevisionNo": frozen["revision_no"],
+                "newRevisionId": new_revision_id,
+                "newRevisionNo": new_rev_no,
                 "decision": req.decision,
                 "caseStatus": "researching",
                 "reviewId": review_id,
+                "note": "原 Revision 已冻结；新 Revision 已创建为 draft",
             }
 
         else:  # reject
