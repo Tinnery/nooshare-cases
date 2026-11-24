@@ -62,6 +62,14 @@
   let loading = $state(false);
   let error = $state<string | null>(null);
 
+  // Date input binding
+  let dateInputValue = $state("");
+
+  // Sync dateInputValue when selectedDate changes
+  $effect(() => {
+    dateInputValue = selectedDate || "";
+  });
+
   // ---------- 初始化 ----------
   let initialized = false;
   $effect(() => {
@@ -75,7 +83,7 @@
   // ---------- 加载日期列表 ----------
   async function loadDates(initialDate?: string | null): Promise<void> {
     try {
-      datesInfo = await get<DateInfo[]>("/api/limitup/dates?limit=30");
+      datesInfo = await get<DateInfo[]>("/api/limitup/dates?limit=1000");
       if (datesInfo.length === 0) {
         error = "无涨停数据";
         return;
@@ -108,16 +116,29 @@
   }
 
   // ---------- 日期导航 ----------
-  function onDateChange(e: Event): void {
-    const v = (e.target as HTMLSelectElement).value;
-    if (v) loadDay(v);
+  function onDateInput(e: Event): void {
+    const v = (e.target as HTMLInputElement).value;
+    if (v && v !== selectedDate) loadDay(v);
   }
 
   function shiftDate(delta: number): void {
     if (!selectedDate) return;
     const i = datesInfo.findIndex((d) => d.trade_date === selectedDate);
-    const next = datesInfo[i - delta];
+    if (i === -1) return;
+    const next = datesInfo[i + delta]; // delta=1 → older (next in array), delta=-1 → newer (prev in array)
     if (next) loadDay(next.trade_date);
+  }
+
+  function gotoEarliest(): void {
+    if (datesInfo.length > 0) {
+      loadDay(datesInfo[datesInfo.length - 1].trade_date);
+    }
+  }
+
+  function gotoLatest(): void {
+    if (datesInfo.length > 0) {
+      loadDay(datesInfo[0].trade_date);
+    }
   }
 
   // ---------- 格式化辅助 ----------
@@ -139,19 +160,25 @@
   <div class="panel-head">
     <h1 class="page-title">涨停观察</h1>
     <div class="date-nav">
-      <button class="icon-btn" onclick={() => shiftDate(-1)} disabled={!selectedDate || datesInfo.length === 0 || datesInfo[0].trade_date === selectedDate}>
+      <button class="icon-btn" title="最早日期" onclick={gotoEarliest} disabled={!selectedDate || datesInfo.length === 0 || datesInfo[datesInfo.length - 1].trade_date === selectedDate}>
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M11 3L6 8l5 5"/><path d="M7 3L2 8l5 5"/>
+        </svg>
+      </button>
+      <button class="icon-btn" title="上一日" onclick={() => shiftDate(1)} disabled={!selectedDate || datesInfo.length === 0 || datesInfo[datesInfo.length - 1].trade_date === selectedDate}>
         <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5">
           <path d="M10 3L5 8l5 5"/>
         </svg>
       </button>
-      <select class="input input-mono" value={selectedDate || ""} onchange={onDateChange}>
-        {#each datesInfo as d}
-          <option value={d.trade_date}>{d.trade_date}</option>
-        {/each}
-      </select>
-      <button class="icon-btn" onclick={() => shiftDate(1)} disabled={!selectedDate || datesInfo.length === 0 || datesInfo[datesInfo.length - 1].trade_date === selectedDate}>
+      <input type="date" class="input input-mono date-input" bind:value={dateInputValue} onchange={onDateInput} />
+      <button class="icon-btn" title="下一日" onclick={() => shiftDate(-1)} disabled={!selectedDate || datesInfo.length === 0 || datesInfo[0].trade_date === selectedDate}>
         <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5">
           <path d="M6 3l5 5-5 5"/>
+        </svg>
+      </button>
+      <button class="icon-btn" title="最晚日期" onclick={gotoLatest} disabled={!selectedDate || datesInfo.length === 0 || datesInfo[0].trade_date === selectedDate}>
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M5 3l5 5-5 5"/><path d="M9 3l5 5-5 5"/>
         </svg>
       </button>
     </div>
@@ -298,8 +325,8 @@
     opacity: 0.4;
     cursor: not-allowed;
   }
-  .date-nav select {
-    width: 140px;
+  .date-input {
+    width: 150px;
   }
 
   /* 状态提示 */
