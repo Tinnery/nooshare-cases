@@ -227,6 +227,29 @@ async def add_evidence(case_id: str, req: EvidenceRequest):
     if c["status"] not in ("candidate", "researching"):
         raise HTTPException(status_code=409, detail=f"Case 当前状态为 {c['status']}，仅 candidate/researching 状态可添加证据")
 
+    # G3 PIT 约束：查询 case 的 info_cutoff
+    case_info = await fetch_one(
+        'SELECT info_cutoff FROM cases."case" WHERE case_id = $1',
+        case_id
+    )
+    info_cutoff = case_info.get("info_cutoff") if case_info else None
+    
+    # G3 PIT 约束：如果 availability_at 晚于 info_cutoff，拒绝或标记为 unverified
+    if req.availabilityAt and info_cutoff:
+        try:
+            from datetime import datetime
+            avail_at = datetime.fromisoformat(req.availabilityAt.replace("Z", "+00:00"))
+            cutoff = datetime.fromisoformat(info_cutoff) if isinstance(info_cutoff, str) else info_cutoff
+            if avail_at > cutoff:
+                # 强制标记为 unverified，并在 pit_note 中说明
+                if req.pitStatus == "verified":
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"证据 availability_at ({req.availabilityAt}) 晚于 info_cutoff ({info_cutoff})，不能标记为 verified"
+                    )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"日期格式无效: {e}")
+
     valid_types = ["document", "frame", "business_fact", "market_observation", "other"]
     if req.upstreamType not in valid_types:
         raise HTTPException(status_code=400, detail=f"upstreamType 必须是 {valid_types} 之一")
@@ -264,6 +287,29 @@ async def update_evidence(case_id: str, evidence_id: str, req: EvidenceRequest):
     valid_statuses = ["verified", "unverified", "unresolved", "unavailable"]
     if req.pitStatus not in valid_statuses:
         raise HTTPException(status_code=400, detail=f"pitStatus 必须是 {valid_statuses} 之一")
+
+    # G3 PIT 约束：查询 case 的 info_cutoff
+    case_info = await fetch_one(
+        'SELECT info_cutoff FROM cases."case" WHERE case_id = ',
+        case_id
+    )
+    info_cutoff = case_info.get("info_cutoff") if case_info else None
+    
+    # G3 PIT 约束：如果 availability_at 晚于 info_cutoff，拒绝或标记为 unverified
+    if req.availabilityAt and info_cutoff:
+        try:
+            from datetime import datetime
+            avail_at = datetime.fromisoformat(req.availabilityAt.replace("Z", "+00:00"))
+            cutoff = datetime.fromisoformat(info_cutoff) if isinstance(info_cutoff, str) else info_cutoff
+            if avail_at > cutoff:
+                # 强制标记为 unverified，并在 pit_note 中说明
+                if req.pitStatus == "verified":
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"证据 availability_at ({req.availabilityAt}) 晚于 info_cutoff ({info_cutoff})，不能标记为 verified"
+                    )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"日期格式无效: {e}")
 
     await execute(
         "UPDATE cases.evidence_reference SET revision_id = $1, upstream_type = $2, upstream_id = $3, locator = $4, summary = $5, published_at = $6, availability_at = $7, pit_status = $8, pit_note = $9, updated_at = now() WHERE evidence_id = $10 AND case_id = $11",
