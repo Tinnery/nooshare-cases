@@ -119,7 +119,7 @@ async def get_daily_limit_up(
 
 @router.get("/dates")
 async def get_limit_up_dates(
-    limit: int = Query(30, ge=1, le=365, description="返回数量"),
+    limit: int = Query(30, ge=1, le=1000, description="返回数量"),
 ):
     """
     获取有涨停数据的交易日期列表（最近N个）
