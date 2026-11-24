@@ -27,41 +27,138 @@
 - 案例管理代码（`nooshare_cases/`）
 - CLI 命令（`nooshare_cases/cli.py`）
 - 配置（`nooshare_cases/config.py`）
-- Web 后端 API（`nooshare_cases/web/`）
-- 测试（`tests/`）
+- Web 后端（`web/src/server/`）—— Bun.serve 入口，API 路由 + 静态文件服务
+- Web 前端（`web/src/client/`）—— Svelte 5 + Vite
+- 数据库 Schema（`web/src/server/schema.sql`）—— `cases.*` DDL
+- 测试（`tests/`、`web/src/server/index.test.ts`）
 
 上游权威不替代这些本地契约。与权威要求冲突时，向拥有该问题的权威反馈，不在本地悄悄改写权威定义。
 
 ## Current Workflow
 
-唯一执行入口是 CLI（`nooshare_cases/cli.py`）。
+Cases 有两个执行入口：CLI（Python）和 Web（Bun + Svelte）。
 
-**命令**：
+### CLI（Python）
 
 | 命令 | 状态 | 说明 |
 |------|------|------|
 | `run` | Current | 示例命令，输出问候语 |
 
+CLI 当前仅为占位入口，核心业务逻辑在 Web 端。
+
+### Web（Bun + Svelte）
+
+Web 是主要业务入口，拥有完整的 API 路由和前端页面。
+
+**后端**（Bun.serve，端口 3000）：
+
+| API 路由模块 | 路径前缀 | 说明 |
+|-------------|---------|------|
+| `routeMarket` | `/api/market/*` | 市场行情：涨停数据、主题筛选、股票列表 |
+| `routeDiscovery` | `/api/discovery/*` | Discovery 队列、主题详情、跳过/准备操作 |
+| `routeCases` | `/api/cases/*` | Case 生命周期：创建、修订、审核、观察 |
+
+**前端页面**（Svelte 5）：
+
+| 页面 | 文件 | 说明 |
+|------|------|------|
+| MarketPage | `pages/MarketPage.svelte` | 涨停数据浏览、日期选择、主题筛选 |
+| DiscoveryPage | `pages/DiscoveryPage.svelte` | 热点发现与人工校准 |
+| CasesPage | `pages/CasesPage.svelte` | Case 列表、详情、审核流程 |
+| LimitUpPage | `pages/LimitUpPage.svelte` | 涨停原始数据展示 |
+
+**数据库 Schema**（`cases.*`）：
+
+| 表 | 职责 |
+|---|------|
+| `cases.case` | 研究案例主表（状态：candidate → researching → reviewing → frozen → observing → completed） |
+| `cases.case_revision` | 案例修订版本（frozen 后不可变） |
+| `cases.company_participation` | 企业参与样本（七类角色） |
+| `cases.evidence_reference` | 证据引用（PIT 四态） |
+| `cases.review_record` | 人工审核记录 |
+| `cases.observation` | 观察追加（frozen 后唯一允许的写入） |
+| `cases.agent_run` | Agent 运行记录 |
+| `cases.discovery_action` | Discovery 人类校准动作 |
+
+**数据边界**（硬约束，`db.ts` 注释明确）：
+
+- **写入**：仅 `cases.*` schema
+- **只读**：`research.*`、`iwen.*`、`ju.*`、`public.*`、`annual_semi.*`
+
+### 当前能力状态（2026-11-24）
+
+| 能力 | 状态 | 说明 |
+|------|------|------|
+| Market 页面 | 已实现 | 涨停数据浏览、主题筛选、股票详情 |
+| Discovery 页面 | 已实现 | 队列展示、跳过/准备操作 |
+| Cases 页面 | 已实现 | 列表、详情、审核流程 |
+| 数据库写入 | 已实现 | cases schema 全部表可写 |
+| 上游数据读取 | 已实现 | research/iwen 等 schema 只读 |
+| Agent Runtime | **未实现** | `agent_run` 表存在但当前为 seed 静态数据，无真实执行引擎 |
+| 真实 Case 创建 | **未实现** | Discovery → Case 创建流程尚未连接 |
+
+**重要**：`agent_run` 表当前仅存储 seed fixtures，不代表已有完整 Agent 执行能力。真实 Agent Runtime 需要后续实现。
+
 ## Development
 
-### 环境初始化
+### 后端（Bun）
+
+```bash
+cd web
+
+# 安装依赖
+~/.bun/bin/bun install
+
+# 开发模式（热重载）
+~/.bun/bin/bun run dev:server
+
+# 生产模式
+~/.bun/bin/bun run start
+
+# 测试
+~/.bun/bin/bun run test
+
+# 类型检查
+~/.bun/bin/bun run typecheck
+```
+
+### 前端（Svelte + Vite）
+
+```bash
+cd web
+
+# 安装依赖
+~/.bun/bin/bun install
+
+# 开发模式
+~/.bun/bin/bun run dev:client
+
+# 构建生产版本
+~/.bun/bin/bun run build
+```
+
+### Python CLI
 
 ```bash
 uv venv
 uv sync --extra dev
-```
 
-### 运行
-
-```bash
 uv run nooshare-cases
-```
-
-### 测试
-
-```bash
 uv run pytest
 ```
+
+## Deployment
+
+```
+nginx (443 SSL, case.pro.neuralj.com)
+  ↓
+uvicorn / Bun.serve (127.0.0.1:3000)
+  ↓
+FastAPI / Bun 应用
+```
+
+- **supervisor 进程**: `cases-web`
+- **日志位置**: `~/.local/state/supervisor/log/cases-web.{out,err}.log`
 
 ## Architecture Constraints
 
@@ -71,116 +168,10 @@ uv run pytest
 - **Unit Contract**（`unit-contract.md`）：公开契约必须明确责任、输入、输出、依赖、副作用、失败语义、状态与生命周期。
 - **Unit Composition**（`unit-composition.md`）：内部步骤在获得独立边界价值前保持私有。
 - **Application Structure Patterns**（`application-structure-patterns.md`）：从最简结构开始，按需引入 Trigger、Orchestration、Unit、Port、Adapter。
-- **Python Skeleton**（`python-minimal-skeleton.md`）：flat 布局，UV 管理依赖，CLI 入口注册在 `[project.scripts]`，禁止 `__main__`。
 
 ## 结构纪律
 
 - 禁止预建 `core/`、`utils/`、`scripts/` 等额外目录，除非有真实业务边界。
-- 入口点必须注册在 `pyproject.toml` 的 `[project.scripts]`。
+- 入口点必须注册在 `pyproject.toml` 的 `[project.scripts]`（Python CLI）。
 - `tests/` 必须保留，用于回归测试。
 - 开发依赖隔离在 `dev` 组。
-
-## Web UI
-
-Web 界面采用前后端分离架构：
-- **后端**：FastAPI（Python），位于 `nooshare_cases/web/`
-- **前端**：Svelte 5（TypeScript），位于 `web/src/client/`
-
-### 技术栈
-
-- **后端框架**: FastAPI（Python 3.11+）
-- **数据库驱动**: asyncpg（异步 PostgreSQL）
-- **前端框架**: Svelte 5
-- **构建工具**: Vite（仅前端）
-- **进程管理**: supervisor（管理 uvicorn 进程）
-- **反向代理**: nginx（SSL 终止 + 路由）
-
-### 目录结构
-
-```
-nooshare_cases/
-├── __init__.py
-├── cli.py
-├── config.py
-└── web/
-    ├── __init__.py
-    ├── main.py              # FastAPI 应用入口
-    ├── db.py                # 数据库连接与工具函数
-    └── endpoints/
-        ├── __init__.py
-        └── discovery.py     # Discovery API 端点
-
-web/
-├── package.json
-├── tsconfig.json
-├── vite.config.ts
-└── src/
-    └── client/
-        ├── index.html
-        ├── main.ts
-        └── app.svelte
-```
-
-### 开发命令
-
-#### 后端（FastAPI）
-
-```bash
-# 安装依赖
-uv sync --extra dev
-
-# 开发模式（热重载）
-uv run uvicorn nooshare_cases.web.main:app --reload --host 127.0.0.1 --port 3000
-
-# 生产模式
-uv run uvicorn nooshare_cases.web.main:app --host 127.0.0.1 --port 3000
-```
-
-#### 前端（Svelte）
-
-```bash
-cd web
-
-# 安装依赖
-~/.bun/bin/bun install
-
-# 开发模式
-~/.bun/bin/bun run dev
-
-# 构建生产版本
-~/.bun/bin/bun run build
-```
-
-### 部署架构
-
-```
-nginx (443 SSL)
-  ↓
-case.pro.neuralj.com
-  ↓
-uvicorn (127.0.0.1:3000)
-  ↓
-FastAPI 应用
-```
-
-- **supervisor 进程**: `cases-web`
-- **日志位置**: `~/.local/state/supervisor/log/cases-web.{out,err}.log`
-- **配置文件**: `~/.local/etc/supervisor/conf.d/cases-web.conf`
-
-### API 端点
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/health` | 健康检查 |
-| GET | `/api/discovery/queue` | 获取 Discovery 队列 |
-| GET | `/api/discovery/theme/{topic_id}` | 获取主题详情 |
-| POST | `/api/discovery/{topic_id}/skip` | 跳过主题 |
-| POST | `/api/discovery/{topic_id}/prepare` | 准备案例 |
-
-### 架构约束
-
-- FastAPI 应用遵循依赖注入原则，数据库连接池通过 `db.py` 管理
-- API 端点按功能模块组织在 `endpoints/` 目录下
-- 前端构建产物位于 `web/dist/client/`，由 FastAPI 静态文件服务托管
-- 所有数据库查询使用 asyncpg 异步接口
-- 环境变量通过 `config.py` 统一管理

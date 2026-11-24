@@ -139,7 +139,7 @@
   <div class="panel-head">
     <h1 class="page-title">涨停观察</h1>
     <div class="date-nav">
-      <button class="icon-btn" onclick={() => shiftDate(-1)} disabled={!selectedDate || datesInfo.findIndex(d => d.trade_date === selectedDate) === 0}>
+      <button class="icon-btn" onclick={() => shiftDate(-1)} disabled={!selectedDate || datesInfo.length === 0 || datesInfo[0].trade_date === selectedDate}>
         <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5">
           <path d="M10 3L5 8l5 5"/>
         </svg>
@@ -149,7 +149,7 @@
           <option value={d.trade_date}>{d.trade_date}</option>
         {/each}
       </select>
-      <button class="icon-btn" onclick={() => shiftDate(1)} disabled={!selectedDate || datesInfo.findIndex(d => d.trade_date === selectedDate) === datesInfo.length - 1}>
+      <button class="icon-btn" onclick={() => shiftDate(1)} disabled={!selectedDate || datesInfo.length === 0 || datesInfo[datesInfo.length - 1].trade_date === selectedDate}>
         <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5">
           <path d="M6 3l5 5-5 5"/>
         </svg>

@@ -3,11 +3,24 @@
 from fastapi import APIRouter, HTTPException, Query
 from typing import Optional, List
 from datetime import date, datetime
-from pydantic import BaseModel
+from decimal import Decimal
+from pydantic import BaseModel, field_serializer
 
 from ..db import fetch_all, fetch_one
 
 router = APIRouter()
+
+
+def _clean_decimals(obj):
+    """Recursively convert Decimal to float/int in nested dicts/lists."""
+    if isinstance(obj, Decimal):
+        return float(obj) if obj % 1 != 0 else int(obj)
+    elif isinstance(obj, dict):
+        return {k: _clean_decimals(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_clean_decimals(v) for v in obj]
+    return obj
+
 
 
 class LimitUpStock(BaseModel):
@@ -81,8 +94,8 @@ async def get_daily_limit_up(
     
     # 统计
     total_count = len(rows)
-    continuous_count = sum(1 for r in rows if r.get("continuous_days") and r["continuous_days"] >= 2)
-    max_continuous_days = max((r.get("continuous_days") or 0) for r in rows)
+    continuous_count = sum(1 for r in rows if r.get("continuous_days") and int(r["continuous_days"]) >= 2)
+    max_continuous_days = max((int(r.get("continuous_days") or 0)) for r in rows)
     
     # 龙头股（连板天数最多的前5只）
     top_leaders = [
@@ -94,14 +107,14 @@ async def get_daily_limit_up(
     # 全部涨停股
     all_stocks = [LimitUpStock(**r) for r in rows]
     
-    return {
+    return _clean_decimals({
         "trade_date": trade_date,
         "total_count": total_count,
         "continuous_count": continuous_count,
         "max_continuous_days": max_continuous_days,
-        "top_leaders": top_leaders,
-        "all_stocks": all_stocks,
-    }
+        "top_leaders": [r.model_dump() for r in top_leaders],
+        "all_stocks": [r.model_dump() for r in all_stocks],
+    })
 
 
 @router.get("/dates")
@@ -126,15 +139,15 @@ async def get_limit_up_dates(
         limit,
     )
     
-    return [
+    return _clean_decimals([
         {
             "trade_date": r["trade_date"],
-            "stock_count": r["stock_count"],
-            "continuous_count": r["continuous_count"],
-            "max_continuous_days": r["max_continuous_days"],
+            "stock_count": int(r["stock_count"]),
+            "continuous_count": int(r["continuous_count"]),
+            "max_continuous_days": int(r["max_continuous_days"]),
         }
         for r in rows
-    ]
+    ])
 
 
 @router.get("/stock/{stock_code}")
@@ -174,10 +187,10 @@ async def get_stock_limit_up_history(
     if not rows:
         raise HTTPException(status_code=404, detail=f"股票 {stock_code} 无涨停记录")
     
-    return {
+    return _clean_decimals({
         "stock_code": stock_code,
-        "records": [LimitUpStock(**r) for r in rows],
-    }
+        "records": [LimitUpStock(**r).model_dump() for r in rows],
+    })
 
 
 @router.get("/leaders")
@@ -232,7 +245,7 @@ async def get_leaders(
     # 计算龙头得分（简化版）
     leaders = []
     for r in rows:
-        continuous_days = r.get("continuous_days") or 0
+        continuous_days = int(r.get("continuous_days") or 0)
         
         # 连板高度得分（0-100）
         if continuous_days <= 1:
@@ -245,7 +258,7 @@ async def get_leaders(
             height_score = 100
         
         # 封板质量得分（简化：基于封单额）
-        seal_amount = r.get("limit_up_seal_amount") or 0
+        seal_amount = float(r.get("limit_up_seal_amount") or 0)
         seal_score = min(seal_amount / 10000000, 100)  # 封单额/1000万，上限100
         
         # 时间衰减权重（首次封板时间越早越好）
@@ -265,7 +278,7 @@ async def get_leaders(
             time_weight = 0.5
         
         # 综合得分
-        leader_score = (
+        leader_score = float(
             height_score * 0.40 +
             seal_score * 0.20 +
             time_weight * 100 * 0.15
@@ -282,7 +295,7 @@ async def get_leaders(
     # 按龙头得分排序
     leaders.sort(key=lambda x: x["leader_score"], reverse=True)
     
-    return {
+    return _clean_decimals({
         "trade_date": trade_date,
         "leaders": leaders,
-    }
+    })
