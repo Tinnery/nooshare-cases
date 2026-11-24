@@ -24,4 +24,11 @@ dev = [
 nooshare-cases = "nooshare_cases.cli:app"
 
 [tool.pytest.ini_options]
+asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "pytest<9.0.0",
+    "pytest-asyncio>=0.23.0",
+]
