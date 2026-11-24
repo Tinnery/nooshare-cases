@@ -6,7 +6,8 @@ import json
 import time
 import random
 import asyncio
-from datetime import datetime
+from datetime import datetime, date
+from ..utils_time import parse_to_shanghai, validate_trading_day
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
@@ -474,10 +475,13 @@ async def prepare_case(topic_id: str, body: PrepareRequest):
     if not body.researchTimeT or not body.infoCutoff:
         raise HTTPException(status_code=400, detail="T 时点与信息截止均为必填项")
     try:
-        ts_t = datetime.fromisoformat(body.researchTimeT)
-        ts_cutoff = datetime.fromisoformat(body.infoCutoff)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="日期格式无效")
+        ts_t = parse_to_shanghai(body.researchTimeT)
+        ts_cutoff = parse_to_shanghai(body.infoCutoff)
+        # G3: 校验是否为交易日
+        validate_trading_day(ts_t.date(), "researchTimeT")
+        validate_trading_day(ts_cutoff.date(), "infoCutoff")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     if ts_cutoff > ts_t:
         raise HTTPException(status_code=400, detail="信息截止必须早于或等于 T 时点")
 

@@ -11,7 +11,8 @@
 
 from fastapi import APIRouter, HTTPException
 from typing import Optional, List, Any, Dict
-from datetime import datetime
+from datetime import datetime, date
+from ..utils_time import parse_to_shanghai
 from pydantic import BaseModel
 import uuid
 import time
@@ -238,8 +239,8 @@ async def add_evidence(case_id: str, req: EvidenceRequest):
     if req.availabilityAt and info_cutoff:
         try:
             from datetime import datetime
-            avail_at = datetime.fromisoformat(req.availabilityAt.replace("Z", "+00:00"))
-            cutoff = datetime.fromisoformat(info_cutoff) if isinstance(info_cutoff, str) else info_cutoff
+            avail_at = parse_to_shanghai(req.availabilityAt)
+            cutoff = parse_to_shanghai(info_cutoff) if isinstance(info_cutoff, str) else info_cutoff
             if avail_at > cutoff:
                 # 强制标记为 unverified，并在 pit_note 中说明
                 if req.pitStatus == "verified":
@@ -299,8 +300,8 @@ async def update_evidence(case_id: str, evidence_id: str, req: EvidenceRequest):
     if req.availabilityAt and info_cutoff:
         try:
             from datetime import datetime
-            avail_at = datetime.fromisoformat(req.availabilityAt.replace("Z", "+00:00"))
-            cutoff = datetime.fromisoformat(info_cutoff) if isinstance(info_cutoff, str) else info_cutoff
+            avail_at = parse_to_shanghai(req.availabilityAt)
+            cutoff = parse_to_shanghai(info_cutoff) if isinstance(info_cutoff, str) else info_cutoff
             if avail_at > cutoff:
                 # 强制标记为 unverified，并在 pit_note 中说明
                 if req.pitStatus == "verified":
