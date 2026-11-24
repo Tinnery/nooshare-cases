@@ -4,7 +4,7 @@
 
 ## Matrix Authority
 
-- **nooshare-design**：系统角色与跨仓逻辑职责（architecture/matrix.md）。
+- **nooshare-design**：系统角色与跨仓逻辑职责（architecture/matrix.md、architecture/nooshare-cases.md）。
 - **nooshare-noos**：适用的已验证知识与工程 invariant。
 - **nooshare-workenv**：工作区、主机、部署与操作授权（AGENTS.md、workspace.yaml）。
 
@@ -14,7 +14,7 @@
 
 | 触发条件 | 索引目标 | 读什么 |
 |----------|----------|--------|
-| 系统角色 / 跨仓职责变更 | nooshare-design | `architecture/matrix.md` |
+| 系统角色 / 跨仓职责变更 | nooshare-design | `architecture/matrix.md`、`architecture/nooshare-cases.md` |
 | 工程 invariant / 已验证知识 | nooshare-noos | 相关 domain 文件 |
 | 主机 / 部署 / 操作授权变更 | nooshare-workenv | `AGENTS.md` + `workspace.yaml` |
 
@@ -27,7 +27,7 @@
 - 案例管理代码（`nooshare_cases/`）
 - CLI 命令（`nooshare_cases/cli.py`）
 - 配置（`nooshare_cases/config.py`）
-- Web 后端（`web/src/server/`）—— Bun.serve 入口，API 路由 + 静态文件服务
+- Web 后端（`web/src/server/`）—— FastAPI 入口，API 路由 + 静态文件服务
 - Web 前端（`web/src/client/`）—— Svelte 5 + Vite
 - 数据库 Schema（`web/src/server/schema.sql`）—— `cases.*` DDL
 - 测试（`tests/`、`web/src/server/index.test.ts`）
@@ -36,7 +36,7 @@
 
 ## Current Workflow
 
-Cases 有两个执行入口：CLI（Python）和 Web（Bun + Svelte）。
+Cases 有两个执行入口：CLI（Python）和 Web（FastAPI + Svelte）。
 
 ### CLI（Python）
 
@@ -46,26 +46,22 @@ Cases 有两个执行入口：CLI（Python）和 Web（Bun + Svelte）。
 
 CLI 当前仅为占位入口，核心业务逻辑在 Web 端。
 
-### Web（Bun + Svelte）
+### Web（FastAPI + Svelte）
 
 Web 是主要业务入口，拥有完整的 API 路由和前端页面。
 
-**后端**（Bun.serve，端口 3000）：
+**后端**（FastAPI，端口 3000）：
 
 | API 路由模块 | 路径前缀 | 说明 |
 |-------------|---------|------|
-| `routeMarket` | `/api/market/*` | 市场行情：涨停数据、主题筛选、股票列表 |
-| `routeDiscovery` | `/api/discovery/*` | Discovery 队列、主题详情、跳过/准备操作 |
-| `routeCases` | `/api/cases/*` | Case 生命周期：创建、修订、审核、观察 |
+| `limitup_router` | `/api/limitup/*` | 涨停数据：日期列表、每日涨停、龙头股排行、个股历史 |
+| `discovery_router` | `/api/discovery/*` | Discovery 队列、主题详情、跳过/准备操作 |
 
 **前端页面**（Svelte 5）：
 
 | 页面 | 文件 | 说明 |
 |------|------|------|
-| MarketPage | `pages/MarketPage.svelte` | 涨停数据浏览、日期选择、主题筛选 |
-| DiscoveryPage | `pages/DiscoveryPage.svelte` | 热点发现与人工校准 |
-| CasesPage | `pages/CasesPage.svelte` | Case 列表、详情、审核流程 |
-| LimitUpPage | `pages/LimitUpPage.svelte` | 涨停原始数据展示 |
+| LimitUpPage | `pages/LimitUpPage.svelte` | 涨停原始数据展示、日期导航、龙头股排行、涨停列表 |
 
 **数据库 Schema**（`cases.*`）：
 
@@ -85,41 +81,21 @@ Web 是主要业务入口，拥有完整的 API 路由和前端页面。
 - **写入**：仅 `cases.*` schema
 - **只读**：`research.*`、`iwen.*`、`ju.*`、`public.*`、`annual_semi.*`
 
-### 当前能力状态（2026-11-24）
-
-| 能力 | 状态 | 说明 |
-|------|------|------|
-| Market 页面 | 已实现 | 涨停数据浏览、主题筛选、股票详情 |
-| Discovery 页面 | 已实现 | 队列展示、跳过/准备操作 |
-| Cases 页面 | 已实现 | 列表、详情、审核流程 |
-| 数据库写入 | 已实现 | cases schema 全部表可写 |
-| 上游数据读取 | 已实现 | research/iwen 等 schema 只读 |
-| Agent Runtime | **未实现** | `agent_run` 表存在但当前为 seed 静态数据，无真实执行引擎 |
-| 真实 Case 创建 | **未实现** | Discovery → Case 创建流程尚未连接 |
-
-**重要**：`agent_run` 表当前仅存储 seed fixtures，不代表已有完整 Agent 执行能力。真实 Agent Runtime 需要后续实现。
-
 ## Development
 
-### 后端（Bun）
+### 后端（FastAPI）
 
 ```bash
 cd web
 
 # 安装依赖
-~/.bun/bin/bun install
+uv sync
 
 # 开发模式（热重载）
-~/.bun/bin/bun run dev:server
+uv run uvicorn nooshare_cases.web.main:app --reload --host 127.0.0.1 --port 3000
 
 # 生产模式
-~/.bun/bin/bun run start
-
-# 测试
-~/.bun/bin/bun run test
-
-# 类型检查
-~/.bun/bin/bun run typecheck
+uv run uvicorn nooshare_cases.web.main:app --host 127.0.0.1 --port 3000
 ```
 
 ### 前端（Svelte + Vite）
@@ -128,13 +104,13 @@ cd web
 cd web
 
 # 安装依赖
-~/.bun/bin/bun install
+bun install
 
 # 开发模式
-~/.bun/bin/bun run dev:client
+bun run dev:client
 
 # 构建生产版本
-~/.bun/bin/bun run build
+bun run build
 ```
 
 ### Python CLI
@@ -152,9 +128,9 @@ uv run pytest
 ```
 nginx (443 SSL, case.pro.neuralj.com)
   ↓
-uvicorn / Bun.serve (127.0.0.1:3000)
+uvicorn (127.0.0.1:3000)
   ↓
-FastAPI / Bun 应用
+FastAPI 应用
 ```
 
 - **supervisor 进程**: `cases-web`
