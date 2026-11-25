@@ -28,6 +28,13 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: travis
+      PGPASSWORD: ""
+      PGDATABASE: nooshare_dev
     
     steps:
     - uses: actions/checkout@v4
@@ -43,10 +50,23 @@ jobs:
     - name: Install Python dependencies
       run: |
         uv sync --extra dev
-    
-    - name: Run Python tests
+
+    - name: Install and configure isolated PostgreSQL
       run: |
-        uv run pytest tests/ -v
+        set -euo pipefail
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq postgresql postgresql-client
+        read -r pg_version pg_cluster _ <<< "$(pg_lsclusters --no-header | head -n 1)"
+        pg_hba="/etc/postgresql/$pg_version/$pg_cluster/pg_hba.conf"
+        sudo sed -i '1i local all all trust\nhost all all 127.0.0.1/32 trust' "$pg_hba"
+        sudo -u postgres psql -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET unix_socket_directories = '/tmp'"
+        sudo -u postgres psql -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET listen_addresses = '127.0.0.1'"
+        sudo pg_ctlcluster "$pg_version" "$pg_cluster" restart
+        sudo -u postgres psql -v ON_ERROR_STOP=1 -c "CREATE ROLE travis LOGIN CREATEDB"
+        sudo -u postgres createdb --owner=travis nooshare_dev
+        pg_isready -h 127.0.0.1 -p 5432
+
+    
     
     - name: Set up Bun
       uses: oven-sh/setup-bun@v2
@@ -57,7 +77,38 @@ jobs:
       run: |
         cd web
         bun install
+
+    - name: Seed isolated Cases database fixtures
+      run: |
+        set -euo pipefail
+        cd web
+        bun run src/server/seed-fixtures.ts
+        cd ..
+        PGPASSWORD="$PGPASSWORD" psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" -v ON_ERROR_STOP=1 <<'SQL'
+        CREATE SCHEMA IF NOT EXISTS research;
+        CREATE SCHEMA IF NOT EXISTS ju;
+        CREATE TABLE IF NOT EXISTS research.market_limit_up_observation (
+          stock_code TEXT, trade_date DATE, change_pct NUMERIC, source_snapshot_id UUID
+        );
+        CREATE TABLE IF NOT EXISTS research.observation_theme (
+          source_snapshot_id UUID
+        );
+        CREATE TABLE IF NOT EXISTS research.theme_episode (
+          episode_id UUID, theme_id UUID, status TEXT, start_date DATE, end_date DATE
+        );
+        CREATE TABLE IF NOT EXISTS research.theme (
+          theme_id UUID, theme_name TEXT
+        );
+        CREATE TABLE IF NOT EXISTS ju.stocks (
+          stock_code TEXT, start_date DATE, end_date DATE, display_name TEXT
+        );
+        SQL
+
     
+    - name: Run Python tests
+      run: |
+        uv run pytest tests/ -v
+
     - name: Build frontend
       run: |
         cd web
