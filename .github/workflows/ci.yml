@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      PGHOST: 127.0.0.1
+      PGHOST: /tmp
       PGPORT: 5432
       PGUSER: travis
       PGPASSWORD: ""
@@ -59,16 +59,17 @@ jobs:
         read -r pg_version pg_cluster _ <<< "$(pg_lsclusters --no-header | head -n 1)"
         sudo pg_ctlcluster "$pg_version" "$pg_cluster" start
         pg_hba="/etc/postgresql/$pg_version/$pg_cluster/pg_hba.conf"
-        sudo sh -c 'tmp="$1.ci"; printf "%s\n" "local all all trust" "host all all 127.0.0.1/32 trust" > "$tmp"; cat "$1" >> "$tmp"; mv "$tmp" "$1"' _ "$pg_hba"
-        sudo -u postgres psql -h 127.0.0.1 -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET unix_socket_directories = '/tmp'"
-        sudo -u postgres psql -h 127.0.0.1 -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET listen_addresses = '127.0.0.1'"
-        sudo pg_ctlcluster "$pg_version" "$pg_cluster" restart
-        sudo -u postgres psql -h 127.0.0.1 -v ON_ERROR_STOP=1 -c "CREATE ROLE travis LOGIN CREATEDB"
-        sudo -u postgres createdb -h 127.0.0.1 --owner=travis nooshare_dev
-        pg_isready -h 127.0.0.1 -p 5432
+        sudo sed -i '1i local all all trust' "$pg_hba"
 
-    
-    
+        # Use the package's default local socket + peer auth for admin work.
+        sudo -u postgres psql -v ON_ERROR_STOP=1 -c "CREATE ROLE travis LOGIN CREATEDB"
+        sudo -u postgres createdb --owner=travis nooshare_dev
+
+        # The app's existing postgres.js adapter uses /tmp as its Unix socket.
+        sudo -u postgres psql -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET unix_socket_directories = '/tmp'"
+        sudo pg_ctlcluster "$pg_version" "$pg_cluster" restart
+        pg_isready -h /tmp -p 5432
+
     - name: Set up Bun
       uses: oven-sh/setup-bun@v2
       with:
