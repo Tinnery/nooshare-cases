@@ -63,8 +63,8 @@ jobs:
         sudo -u postgres psql -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET unix_socket_directories = '/tmp'"
         sudo -u postgres psql -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET listen_addresses = '127.0.0.1'"
         sudo pg_ctlcluster "$pg_version" "$pg_cluster" restart
-        sudo -u postgres psql -h /tmp -v ON_ERROR_STOP=1 -c "CREATE ROLE travis LOGIN CREATEDB"
-        sudo -u postgres createdb -h /tmp --owner=travis nooshare_dev
+        sudo -u postgres psql -h 127.0.0.1 -v ON_ERROR_STOP=1 -c "CREATE ROLE travis LOGIN CREATEDB"
+        sudo -u postgres createdb -h 127.0.0.1 --owner=travis nooshare_dev
         pg_isready -h 127.0.0.1 -p 5432
 
     
