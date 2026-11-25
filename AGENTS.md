@@ -101,3 +101,7 @@
 - 入口点必须注册在 pyproject.toml 的 [project.scripts]（Python CLI）。
 - tests/ 必须保留，用于回归测试。
 - 开发依赖隔离在 dev 组。
+
+## 主机约束
+
+本仓库只在 pro 主机开发和运行。禁止 clone 到 Windows 主机（travis-hp）。如果在 Windows 主机上发现本仓库的 checkout，应删除该 checkout 并修正来源（不正确的 clone 操作或 workspace 配置）。
